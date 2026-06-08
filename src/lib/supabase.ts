@@ -346,4 +346,16 @@ export const getNotifications = async (userId: string) => {
   });
 };
 
+// Get current authenticated user
+export const getCurrentUser = async () => {
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser();
+    if (error) throw error;
+    return user;
+  } catch (error) {
+    console.error('Error getting current user:', error);
+    return null;
+  }
+};
+
 export default supabase;

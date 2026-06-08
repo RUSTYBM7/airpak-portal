@@ -1,393 +1,187 @@
 /**
- * AirPak Express - Admin Portal Login Page
- * Real Zoho OneAuth TOTP verification
- * Demo fallback support
+ * AirPak Express - Admin Sign In Page
+ * Black background + white elements + red accents (#E31837)
+ * Same design as user ChatGPTAuthPage from shipnow-portal-fixed
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { motion } from 'framer-motion';
+import { Loader2 } from 'lucide-react';
+import { Turnstile } from '@marsidev/react-turnstile';
 import { useAuth } from '../../contexts/AuthContext';
-import { supabase } from '../../lib/supabase';
-import {
-  Smartphone,
-  Key,
-  AlertTriangle,
-  CheckCircle,
-  Loader2
-} from 'lucide-react';
-import toast from 'react-hot-toast';
 
-const LoginPage: React.FC = () => {
+// 2x Larger responsive logo component
+const AirPakLogo: React.FC<{ variant?: 'landing' | 'sub' }> = ({ variant = 'landing' }) => {
+  const sizeClasses = variant === 'landing'
+    ? 'w-56 sm:w-72 md:w-80'
+    : 'w-44 sm:w-56 md:w-64';
+  return (
+    <div className="flex justify-center mb-8 sm:mb-10">
+      <img
+        src="/images/airpak-logo-new.png"
+        alt="AirPak Logo"
+        className={`${sizeClasses} h-auto object-contain transition-all duration-300`}
+        style={{ maxHeight: '120px' }}
+      />
+    </div>
+  );
+};
+
+// Back button component
+const BackButton: React.FC<{ onClick: () => void }> = ({ onClick }) => (
+  <button
+    onClick={onClick}
+    className="text-gray-400 hover:text-white mb-4 sm:mb-6 text-xs sm:text-sm flex items-center gap-1 transition-colors"
+  >
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M19 12H5M12 19l-7-7 7-7"/>
+    </svg>
+    Back
+  </button>
+);
+
+// Primary action button
+const PrimaryButton: React.FC<{ onClick?: () => void; type?: 'button' | 'submit'; disabled?: boolean; loading?: boolean; children: React.ReactNode }> = ({ onClick, type = 'button', disabled, loading, children }) => {
+  return (
+    <button
+      type={type}
+      onClick={onClick}
+      disabled={disabled}
+      className="w-full min-h-[52px] sm:min-h-[56px] rounded-xl flex items-center justify-center gap-2 text-white text-sm sm:text-base font-semibold bg-[#E31837] hover:bg-[#C8102E] transition-all disabled:opacity-50 active:scale-[0.98]"
+    >
+      {loading ? <Loader2 size={18} className="animate-spin" /> : children}
+    </button>
+  );
+};
+
+interface LoginPageProps {
+  prefillKey?: string;
+}
+
+const LoginPage: React.FC<LoginPageProps> = ({ prefillKey }) => {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { signIn } = useAuth();
+  const TEST_SITE_KEY = '1x00000000000000000000AA';
 
-  const [step, setStep] = useState<'email' | 'checking' | 'code' | 'not_enabled'>('email');
   const [email, setEmail] = useState('');
-  const [code, setCode] = useState(['', '', '', '', '', '']);
-  const [error, setError] = useState<string | null>(null);
-  const [currentEmail, setCurrentEmail] = useState<string>('');
-  const [isVerifying, setIsVerifying] = useState(false);
+  const [password, setPassword] = useState('');
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState('');
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  const inputRefs = React.useRef<(HTMLInputElement | null)[]>([]);
-
-  useEffect(() => {
-    if (user) {
-      navigate('/dashboard');
-    }
-  }, [user, navigate]);
-
-  const handleEmailSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
+    const newErrors: Record<string, string> = {};
 
-    if (!email || !email.includes('@')) {
-      setError('Please enter a valid email');
+    if (!email) newErrors.email = 'Email is required';
+    if (!password) newErrors.password = 'Password is required';
+
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
       return;
     }
+    setErrors({});
 
-    setCurrentEmail(email);
-
-    // Check for demo credentials first
-    const demoEmails = ['admin@airpak-express.site', 'demo@airpak.com', 'test@airpak.com'];
-    if (demoEmails.includes(email.toLowerCase())) {
-      // Demo mode - skip 2FA verification
-      const demoUser = {
-        id: `demo-${Date.now()}`,
-        email: email,
-        full_name: 'Administrator',
-        role: 'super_admin' as const,
-        created_at: new Date().toISOString(),
-        two_factor_enabled: true,
-      };
-
-      localStorage.setItem('airpak_user', JSON.stringify(demoUser));
-      localStorage.setItem('airpak_2fa_verified', 'true');
-      localStorage.setItem('airpak_demo_user', JSON.stringify(demoUser));
-      localStorage.setItem('airpak_demo_2fa_verified', 'true');
-
-      toast.success('Demo login successful!');
-      navigate('/dashboard');
-      return;
-    }
-
-    // For other emails, check 2FA status via edge function
-    setStep('checking');
+    setIsSubmitting(true);
+    setMessage(null);
 
     try {
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/zoho-oneauth-verify`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-          },
-          body: JSON.stringify({
-            action: 'check',
-            user_email: email.toLowerCase(),
-          }),
-        }
-      );
-
-      const data = await response.json();
-
-      if (data.success && data.enabled) {
-        setStep('code');
-        setCode(['', '', '', '', '', '']);
-        setTimeout(() => inputRefs.current[0]?.focus(), 100);
-      } else {
-        // If 2FA not enabled, allow direct login with Supabase auth
-        try {
-          const { error: authError } = await supabase.auth.signInWithPassword({
-            email: email,
-            password: 'demo-password' // This would need to be handled differently
-          });
-
-          if (authError) {
-            setError('Please enable 2FA or use demo credentials.');
-            setStep('email');
-            return;
-          }
-
-          toast.success('Login successful!');
-          navigate('/dashboard');
-        } catch {
-          setStep('not_enabled');
-        }
+      const { error, rateLimited } = await signIn(email, password);
+      if (rateLimited) {
+        throw new Error('Too many login attempts. Please try again later.');
       }
-    } catch (err) {
-      console.error('Check 2FA error:', err);
-      // On error, show 2FA not enabled screen
-      setStep('not_enabled');
-    }
-  };
-
-  const handleCodeChange = (index: number, value: string) => {
-    if (!/^[0-9]*$/.test(value)) return;
-
-    const newCode = [...code];
-    newCode[index] = value.slice(-1);
-    setCode(newCode);
-
-    if (value && index < 5) {
-      inputRefs.current[index + 1]?.focus();
-    }
-  };
-
-  const handleKeyDown = (index: number, e: React.KeyboardEvent) => {
-    if (e.key === 'Backspace' && code[index] === '' && index > 0) {
-      inputRefs.current[index - 1]?.focus();
-    }
-  };
-
-  const handleVerifyCode = async () => {
-    const fullCode = code.join('');
-    if (fullCode.length !== 6) {
-      setError('Please enter all 6 digits');
-      return;
-    }
-
-    setIsVerifying(true);
-    setError(null);
-
-    try {
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/zoho-oneauth-verify`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-          },
-          body: JSON.stringify({
-            action: 'verify',
-            code: fullCode,
-            user_email: currentEmail.toLowerCase(),
-          }),
-        }
-      );
-
-      const data = await response.json();
-
-      if (data.success) {
-        const loggedInUser = {
-          id: currentEmail,
-          email: currentEmail,
-          full_name: 'Administrator',
-          role: 'super_admin',
-          created_at: new Date().toISOString(),
-          two_factor_enabled: true,
-        };
-
-        localStorage.setItem('airpak_user', JSON.stringify(loggedInUser));
-        localStorage.setItem('airpak_2fa_verified', 'true');
-
-        toast.success('Authentication successful!');
-        navigate('/dashboard');
-      } else {
-        setError(data.error || 'Invalid code. Please try again.');
-        setCode(['', '', '', '', '', '']);
-        setTimeout(() => inputRefs.current[0]?.focus(), 100);
-      }
-    } catch (err) {
-      console.error('Verify error:', err);
-      setError('Verification failed. Please try again.');
-      setCode(['', '', '', '', '', '']);
+      if (error) throw error;
+      setMessage({ type: 'success', text: 'Welcome back!' });
+      setTimeout(() => navigate('/admin/portal'), 800);
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message || 'Invalid credentials' });
     } finally {
-      setIsVerifying(false);
+      setIsSubmitting(false);
     }
-  };
-
-  const handleBack = () => {
-    setStep('email');
-    setEmail('');
-    setCode(['', '', '', '', '', '']);
-    setError(null);
-    setCurrentEmail('');
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 flex items-center justify-center p-4 relative overflow-hidden">
-      <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute -top-40 -right-40 w-96 h-96 bg-red-600/5 rounded-full blur-3xl" />
-        <div className="absolute -bottom-40 -left-40 w-96 h-96 bg-red-600/5 rounded-full blur-3xl" />
-        <div className="absolute inset-0 bg-[linear-gradient(to_right,#1a1a2e_1px,transparent_1px),linear-gradient(to_bottom,#1a1a2e_1px,transparent_1px)] bg-[size:100px_100px] opacity-20" />
-      </div>
+    <div className="min-h-screen bg-black flex items-center justify-center p-4 sm:p-6">
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+        className="w-full max-w-sm sm:max-w-md"
+      >
+        <div className="bg-black rounded-2xl sm:rounded-3xl p-6 sm:p-8 md:p-10">
+          <BackButton onClick={() => navigate('/')} />
 
-      <div className="relative w-full max-w-md">
-        {/* AirPak Logo with Glass Effect */}
-        <div className="flex justify-center mb-8 md:mb-10">
-          <div className="relative">
-            {/* Glass background */}
-            <div className="absolute inset-0 bg-white/10 backdrop-blur-xl rounded-3xl border border-white/20 transform scale-110" />
-            {/* Glowing ring */}
-            <div className="absolute inset-[-4px] bg-gradient-to-r from-red-500/50 via-red-600/50 to-red-500/50 rounded-3xl blur-lg opacity-50" />
-            {/* Logo Image - 3x size */}
-            <img
-              src="/airpak-logo-auth.png"
-              alt="AirPak Express"
-              className="relative h-28 md:h-36 w-auto object-contain drop-shadow-2xl p-3"
-              style={{ filter: 'drop-shadow(0 0 30px rgba(220, 38, 38, 0.4))' }}
-            />
+          <AirPakLogo variant="sub" />
+
+          <h1 className="text-xl sm:text-2xl md:text-3xl font-semibold text-white text-center mb-1">Admin Sign In</h1>
+          <p className="text-xs text-gray-400 text-center mb-6 sm:mb-8">Access your admin dashboard</p>
+
+          <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-4">
+            <div className="w-full">
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => { setEmail(e.target.value); setErrors({ ...errors, email: '' }); }}
+                placeholder="Admin email address"
+                autoComplete="email"
+                className={`w-full h-12 sm:h-14 px-4 bg-[#1a1a1a] border ${errors.email ? 'border-red-500 ring-2 ring-red-500/20' : 'border-gray-700 focus:border-[#E31837]'} rounded-xl focus:ring-2 focus:ring-[#E31837]/20 outline-none text-sm sm:text-base text-white placeholder-gray-500 transition-all`}
+              />
+              {errors.email && <p className="text-red-500 text-xs mt-1 ml-1">{errors.email}</p>}
+            </div>
+
+            <div className="w-full">
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => { setPassword(e.target.value); setErrors({ ...errors, password: '' }); }}
+                placeholder="Password"
+                autoComplete="current-password"
+                className={`w-full h-12 sm:h-14 px-4 bg-[#1a1a1a] border ${errors.password ? 'border-red-500 ring-2 ring-red-500/20' : 'border-gray-700 focus:border-[#E31837]'} rounded-xl focus:ring-2 focus:ring-[#E31837]/20 outline-none text-sm sm:text-base text-white placeholder-gray-500 transition-all`}
+              />
+              {errors.password && <p className="text-red-500 text-xs mt-1 ml-1">{errors.password}</p>}
+            </div>
+
+            <div className="text-right -mt-1">
+              <button
+                type="button"
+                onClick={() => navigate('/admin/forgot-password')}
+                className="text-xs sm:text-sm text-[#E31837] hover:underline"
+              >
+                Forgot password?
+              </button>
+            </div>
+
+            <div className="flex justify-center py-2 sm:py-3">
+              <Turnstile siteKey={TEST_SITE_KEY} onSuccess={setTurnstileToken} />
+            </div>
+
+            {message && (
+              <div className={`p-3 sm:p-4 rounded-xl flex items-center gap-2 text-xs sm:text-sm ${
+                message.type === 'success'
+                  ? 'bg-[#E31837]/20 text-[#E31837] border border-[#E31837]/30'
+                  : 'bg-red-500/20 text-red-400 border border-red-500/30'
+              }`}>
+                {message.text}
+              </div>
+            )}
+
+            <PrimaryButton type="submit" disabled={isSubmitting} loading={isSubmitting}>
+              {isSubmitting ? 'Signing in...' : 'Sign in'}
+            </PrimaryButton>
+          </form>
+
+          <div className="mt-6 sm:mt-8 pt-4 border-t border-gray-800">
+            <p className="text-center text-xs text-gray-500">
+              Not an admin?{' '}
+              <button onClick={() => navigate('/auth')} className="text-[#E31837] hover:underline font-medium">
+                User Login
+              </button>
+            </p>
           </div>
         </div>
-
-        <div className="text-center mb-4">
-          <p className="text-slate-400 text-sm md:text-base">Admin Portal</p>
-        </div>
-
-        <div className="bg-slate-900/80 backdrop-blur-xl rounded-2xl p-6 md:p-8 shadow-2xl border border-slate-800/50">
-          {step === 'email' || step === 'checking' ? (
-            <>
-              {error && (
-                <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-xl flex items-center gap-3">
-                  <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0" />
-                  <span className="text-red-200 text-sm">{error}</span>
-                </div>
-              )}
-
-              <form onSubmit={handleEmailSubmit} className="space-y-5">
-                <div>
-                  {step === 'checking' ? (
-                    <div className="flex items-center justify-center py-3">
-                      <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
-                      <span className="ml-2 text-slate-400">Checking 2FA status...</span>
-                    </div>
-                  ) : (
-                    <input
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="Enter your admin email"
-                      className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all"
-                      autoFocus
-                      required
-                    />
-                  )}
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={step === 'checking'}
-                  className="w-full py-3 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white font-semibold rounded-xl shadow-lg shadow-red-500/30 hover:shadow-red-500/50 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                >
-                  {step === 'checking' ? (
-                    <>
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                      Checking...
-                    </>
-                  ) : (
-                    <>
-                      <Smartphone className="w-5 h-5" />
-                      Continue
-                    </>
-                  )}
-                </button>
-              </form>
-            </>
-          ) : step === 'code' ? (
-            <>
-              <div className="text-center mb-6">
-                <div className="w-16 h-16 bg-emerald-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Key className="w-8 h-8 text-emerald-400" />
-                </div>
-                <h2 className="text-xl font-bold text-white mb-2">Two-Factor Authentication</h2>
-                <p className="text-slate-400 text-sm">Enter code from your Zoho OneAuth app</p>
-              </div>
-
-              <div className="p-3 bg-slate-800/50 rounded-xl mb-6">
-                <p className="text-slate-400 text-xs text-center">
-                  {currentEmail}
-                </p>
-              </div>
-
-              {error && (
-                <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-xl flex items-center gap-3">
-                  <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0" />
-                  <span className="text-red-200 text-sm">{error}</span>
-                </div>
-              )}
-
-              <div className="flex justify-center gap-2 mb-6">
-                {code.map((digit, index) => (
-                  <input
-                    key={index}
-                    ref={(el) => (inputRefs.current[index] = el)}
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={1}
-                    value={digit}
-                    onChange={(e) => handleCodeChange(index, e.target.value)}
-                    onKeyDown={(e) => handleKeyDown(index, e)}
-                    className="w-10 h-12 text-center text-xl font-bold bg-slate-800 border border-slate-600 rounded-xl text-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/50 outline-none transition-all"
-                  />
-                ))}
-              </div>
-
-              <button
-                onClick={handleVerifyCode}
-                disabled={code.some(c => c === '') || isVerifying}
-                className="w-full py-3 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white font-semibold rounded-xl shadow-lg shadow-red-500/30 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                {isVerifying ? (
-                  <>
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                    Verifying...
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle className="w-5 h-5" />
-                    Verify
-                  </>
-                )}
-              </button>
-
-              <button
-                onClick={handleBack}
-                className="w-full mt-3 py-2 text-slate-400 hover:text-white text-sm transition-colors"
-              >
-                Use different email
-              </button>
-            </>
-          ) : (
-            <>
-              <div className="text-center mb-6">
-                <div className="w-16 h-16 bg-amber-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <AlertTriangle className="w-8 h-8 text-amber-400" />
-                </div>
-                <h2 className="text-xl font-bold text-white mb-2">2FA Not Enabled</h2>
-                <p className="text-slate-400 text-sm">You need to set up Two-Factor Authentication first.</p>
-              </div>
-
-              <div className="p-4 bg-slate-800/50 rounded-xl mb-6">
-                <p className="text-slate-300 text-sm text-center">
-                  Email: <span className="text-white font-medium">{currentEmail}</span>
-                </p>
-                <p className="text-slate-400 text-xs text-center mt-2">
-                  Please contact your administrator to enable 2FA for your account.
-                </p>
-              </div>
-
-              <button
-                onClick={handleBack}
-                className="w-full py-3 bg-slate-700 hover:bg-slate-600 text-white font-medium rounded-xl transition-all duration-200 flex items-center justify-center gap-2"
-              >
-                <Smartphone className="w-5 h-5" />
-                Try Different Email
-              </button>
-            </>
-          )}
-        </div>
-
-        <div className="text-center mt-6 space-y-2">
-          <p className="text-slate-500 text-sm">
-            © 2026 AirPak Express. All rights reserved.
-          </p>
-          <p className="text-slate-600 text-xs">
-            Protected by Zoho OneAuth
-          </p>
-        </div>
-      </div>
+      </motion.div>
     </div>
   );
 };
