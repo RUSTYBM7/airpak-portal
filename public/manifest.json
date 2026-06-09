@@ -1,0 +1,16 @@
+{
+  "name": "AirPak Express - Admin Portal",
+  "short_name": "AirPak",
+  "description": "AirPak Express admin and management portal",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#DC2626",
+  "icons": [
+    {
+      "src": "/airpak-logo-header.png",
+      "sizes": "any",
+      "type": "image/png"
+    }
+  ]
+}

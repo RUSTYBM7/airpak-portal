@@ -1,50 +1,59 @@
-# React + TypeScript + Vite
+# AirPak Express — Admin Portal
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Admin and operations portal for AirPak Express (a global shipping/logistics platform).
 
-Currently, two official plugins are available:
+## Stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- **Build:** Vite 6
+- **UI:** React 18 + TypeScript + Tailwind CSS v3
+- **Routing:** React Router 6
+- **State:** Zustand, TanStack Query
+- **Auth & DB:** Supabase (`@supabase/supabase-js`)
+- **Charts:** Recharts
+- **Maps:** MapLibre GL
+- **PDF / Barcode / QR:** jsPDF, jsbarcode, qrcode
+- **AI features:** Monaco editor, Framer Motion
 
-## Expanding the ESLint configuration
+## Local development
 
-If you are developing a production application, we recommend updating the configuration to enable type aware lint rules:
-
-- Configure the top-level `parserOptions` property like this:
-
-```js
-export default tseslint.config({
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-})
+```bash
+npm install
+npm run dev          # Vite dev server
+npm run build        # production build to ./dist
+npm run preview      # serve the built bundle locally
 ```
 
-- Replace `tseslint.configs.recommended` to `tseslint.configs.recommendedTypeChecked` or `tseslint.configs.strictTypeChecked`
-- Optionally add `...tseslint.configs.stylisticTypeChecked`
-- Install [eslint-plugin-react](https://github.com/jsx-eslint/eslint-plugin-react) and update the config:
+## Environment variables
 
-```js
-// eslint.config.js
-import react from 'eslint-plugin-react'
+Create a `.env` file in the project root with the following:
 
-export default tseslint.config({
-  // Set the react version
-  settings: { react: { version: '18.3' } },
-  plugins: {
-    // Add the react plugin
-    react,
-  },
-  rules: {
-    // other rules...
-    // Enable its recommended rules
-    ...react.configs.recommended.rules,
-    ...react.configs['jsx-runtime'].rules,
-  },
-})
+```env
+VITE_SUPABASE_URL=https://<your-project>.supabase.co
+VITE_SUPABASE_ANON_KEY=<your-anon-public-key>
 ```
+
+Both are required for auth and data calls. Without them the app boots but Supabase-backed screens will fail.
+
+## Project layout
+
+```
+src/
+  components/      shared UI + layout
+  contexts/        AuthContext, ThemeContext
+  features/        domain features (shipments, customers, etc.)
+  lib/             supabase client, API helpers, utilities
+  pages/           top-level pages (lazy-loaded)
+  services/        service layer
+  types/           shared types
+  hooks/           custom React hooks
+supabase/          Supabase SQL schema + edge functions
+public/            static assets
+```
+
+## Deployment
+
+Built as a static SPA in `dist/`. For SPAs with client-side routing, host it behind a service that rewrites all paths to `/index.html` (Vercel and Netlify do this automatically; on other hosts, configure a catch-all rewrite).
+
+## License
+
+Proprietary — internal AirPak Express tool.
